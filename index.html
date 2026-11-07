@@ -3,10 +3,136 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ma page</title>
+  <title>Résultat Partie 2 - Alerte réseaux BSMAS</title>
 </head>
 <body>
-  <h1>Bienvenue</h1>
-  <p>Ma page HTML.</p>
+  <script src="https://jsdelivr.net"></script>
+  <script src="https://getgrist.com"></script>
+
+  <!-- Barre supérieure avec le menu déroulant -->
+  <div style="margin-bottom: 15px; font-family: sans-serif;">
+    <label for="classSelect" style="font-size: 14px; font-weight: bold;">Choisir la Classe : </label>
+    <select id="classSelect" style="padding: 6px 12px; font-size: 14px; border-radius: 4px; border: 1px solid #ccc;"></select>
+  </div>
+
+  <div id="chart" style="width:100%;height:100%;min-height:550px;"></div>
+
+  <script>
+  var classMenu = document.getElementById("classSelect");
+  var cachedRecords = [];
+  var detectKey = ""; // Contiendra l'identifiant de la colonne de classe trouvé automatiquement
+
+  // Configuration d'origine stricte (Zéro modification à droite dans Grist)
+  grist.ready({
+    requiredAccess: "read table",
+    columns: [
+      { name: "Categorie", title: "Alerte_Reseaux_BSMAS", type: "Text" },
+      { name: "Valeur", title: "Colonne de nombres", type: "Number" }
+    ]
+  });
+
+  grist.onRecords(function(records) {
+    cachedRecords = records;
+
+    // Analyse automatique de la première ligne pour localiser où se cachent les "5A", "5B", etc.
+    if (records && records.length > 0 && !detectKey) {
+      var premiereLigne = records[0].fields || {};
+      for (var prop in premiereLigne) {
+        if (premiereLigne.hasOwnProperty(prop)) {
+          var texteVal = String(premiereLigne[prop]).trim();
+          // Si la colonne contient une de vos classes, le script comprend que c'est la bonne colonne
+          if (texteVal === "5A" || texteVal === "5B" || texteVal === "5C") {
+            detectKey = prop;
+            break;
+          }
+        }
+      }
+    }
+
+    // Remplissage dynamique du menu déroulant si la colonne a été identifiée
+    if (detectKey && classMenu.innerHTML === "") {
+      var classesTrouvees = {};
+      records.forEach(function(r) {
+        if (r.fields && r.fields[detectKey]) {
+          classesTrouvees[String(r.fields[detectKey]).trim()] = true;
+        }
+      });
+
+      var listeTriee = Object.keys(classesTrouvees).sort();
+      listeTriee.forEach(function(c) {
+        var opt = document.createElement("option");
+        opt.value = c;
+        opt.text = c;
+        classMenu.appendChild(opt);
+      });
+    }
+
+    renderMyChart();
+  });
+
+  // Déclenche la mise à jour dès que l'utilisateur clique sur une autre classe
+  classMenu.onchange = renderMyChart;
+
+  function renderMyChart() {
+    if (!cachedRecords.length) return;
+
+    var selectedClass = classMenu.value;
+    var agg = {};
+    var total = 0;
+
+    cachedRecords.forEach(function(r) {
+      // Filtre : si la colonne classe existe, on ignore les lignes des autres classes
+      if (detectKey && r.fields && String(r.fields[detectKey]).trim() !== selectedClass) {
+        return;
+      }
+
+      var m = grist.mapColumnNames(r);
+      if (!m) { return; }
+
+      var cat = m["Categorie"] || "Vide";
+      var val = Number(m["Valeur"]) || 0;
+      agg[cat] = (agg[cat] || 0) + val;
+      total += val;
+    });
+
+    var colorMap = {
+      "🔴 Risque élevé de dépendance": "#e74c3c",
+      "🟡 Usage problématique potentiel": "#e67e22",
+      "🟢 Relation saine aux réseaux": "#2ecc71"
+    };
+
+    var data = Object.keys(agg).map(function(name) {
+      return {
+        name: name,
+        value: agg[name],
+        itemStyle: { color: colorMap[name] || "#999" }
+      };
+    });
+
+    var el = document.getElementById("chart");
+    var chart = echarts.getInstanceByDom(el) || echarts.init(el);
+    chart.setOption({
+      title: {
+        text: "Résultat Partie 2 - Alerte réseaux BSMAS (" + (selectedClass || "Global") + ")",
+        subtext: total + " répondants",
+        left: "center",
+        top: 10,
+        textStyle: { fontSize: 14 },
+        subtextStyle: { fontSize: 12, color: "#666" }
+      },
+      series: [{
+        type: "pie",
+        radius: ["40%", "70%"],
+        center: ["50%", "58%"],
+        data: data,
+        label: { show: true, formatter: "{b}\\n{d}%" }
+      }]
+    }, true);
+
+    window.addEventListener("resize", function() {
+      chart.resize();
+    });
+  }
+  </script>
 </body>
 </html>
